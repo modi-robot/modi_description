@@ -32,7 +32,7 @@
 
 | 功能 | 说明 |
 |---|---|
-| 多机型 URDF | 提供左臂、右臂、双臂等机型描述 |
+| 机械臂 URDF | 提供左臂、右臂等独立机械臂模型 |
 | 网格资源 | 附带 STL mesh，可直接用于 RViz / Gazebo 等 |
 | 坐标系约定 | 发布页展示各机型连杆与关节坐标系分布 |
 | 独立分发包 | 按机型打包，解压即可作为独立包名使用 |
@@ -56,11 +56,38 @@
 
 ### `modi_dm3_dual`
 
-<p align="center">
-  <img src="docs/pics/dual.png" alt="modi_dm3_dual model and frames" width="560">
-</p>
+`modi_dm3_dual` 是聚合配置目录，不包含自身 URDF 或 mesh。其
+`config/config.yaml` 按顺序引用 `modi_dm3_l` 与 `modi_dm3_r` 两个独立模型，
+运行和打包时必须同时安装这两个模型目录。
+
+## 机械臂限制配置
+
+本项目机械臂 URDF `limit.lower/upper` 为位置范围（rad），`velocity` 为最大速度
+幅值（rad/s），`effort` 按项目约定保存最大电流幅值（A）。CoArm7 采用 V1.1，
+与 DM3 一样，七轴电流为 `[9.9, 9.9, 12.3, 12.3, 4.9, 4.9, 4.9]`。
+
+每个 `arm.groups[]` 必填 `joint_acceleration_limits`（与 `joint` 同序、等长），
+七轴最大加速度均为 `51.8362787842 rad/s²`，即 495 RPM/s；不保存最小加速度。
+`end_effector.translation_velocity_limit` 和 `rotation_velocity_limit` 分别为末端
+速度模长上限（m/s、rad/s）。这些配置经 RobotConfig 在 WBC 初始化后注入，
+由 SDK 从 WBC 查询，双臂 group 分别填写，不从引用的单臂模型继承。
 
 ## 支持的机型包
+
+机械臂 `arm.groups[]` 可配置 `gravity_sensor_position: [x, y, z, roll, pitch, yaw]`。
+它描述 `T_base_sensor`，位置单位 m、姿态单位 rad，旋转顺序 `Rz(yaw) * Ry(pitch) * Rx(roll)`。
+HAL 将静止 MPU 比力取反并乘 `9.80665` 后，通过此旋转得到 base_link 中的测量重力；
+不使用平移，也不归一化测量值。字段缺失时默认单位外参，显式值必须是六个有限数值。
+DM3 右臂（单右臂与 dual 的 right group）设置 yaw 为 `π/4`；其他臂目前采用零外参。
+dual 外参独立配置，不从 `robot` 指向的模型继承。XYZ 为零仅作为位置占位，
+与整条机械臂的 base→world 安装位姿不同。
+
+机械臂 `arm.groups[]` 还可配置 `friction_compensation_Scale`，按 `joint` 顺序
+为每关节设置 WBC 摩擦补偿比例。长度须与关节数相同，每项为 `[0,1]` 的有限值；
+缺省时每关节使用 `0.6`。所有机械臂配置（包括双臂的各 group）均显式配置 `0.6`。
+每次实际上电前，服务端从 CanEvo HAL 读取五项摩擦参数和逐关节碰撞残差，
+分别调用 WBC `SetFrictionParams`、`SetCollisionResiduals`，并通过
+`SetFrictionCompensationScale` 应用此比例；配置失败不继续上电。
 
 当前 GitHub Releases 上传以下机型包：
 
@@ -68,7 +95,7 @@
 |---|---|
 | `modi_dm3_l` | DM3 左臂 |
 | `modi_dm3_r` | DM3 右臂 |
-| `modi_dm3_dual` | DM3 双臂加底座 |
+| `modi_dm3_dual` | DM3 双臂聚合配置（依赖左右臂模型） |
 
 ## 下载模型包
 
@@ -85,7 +112,6 @@
 ```text
 modi_dm3_l_0.0.1_a1b2c3d.zip
 modi_dm3_r_0.0.1_a1b2c3d.zip
-modi_dm3_dual_0.0.1_a1b2c3d.zip
 ```
 
 ## 快速开始
@@ -137,7 +163,8 @@ FindPackageShare('modi_dm3_l')
     ├── meshes/               # STL 等网格
     └── ...
 ```
-发布包不含 `config/`（仍留在源码仓，供开发使用）。
+独立模型发布包不含 `config/`（仍留在源码仓，供开发使用）。双臂聚合目录
+作为 `modi_description` 安装内容分发，并与左右臂模型目录共同使用。
 
 同版本多机型可并存于同一 Release；附件按机型分别下载。
 
